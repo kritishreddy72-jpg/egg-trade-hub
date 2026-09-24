@@ -1,12 +1,25 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const dbPath = path.resolve(__dirname, '../egg_trade.db');
+// On Vercel / AWS Lambda, the root filesystem is read-only.
+// We store the SQLite DB in /tmp to ensure full read/write capability.
+const isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const dbDir = isVercel ? '/tmp' : path.resolve(__dirname, '..');
+const dbPath = path.join(dbDir, 'egg_trade.db');
+
+const needsSeed = isVercel && !fs.existsSync(dbPath);
+
 const db = new Database(dbPath);
 
-// Enable foreign keys and WAL mode for reliability and speed
+// Enable foreign keys
 db.pragma('foreign_keys = ON');
-db.pragma('journal_mode = WAL');
+
+if (!isVercel) {
+  db.pragma('journal_mode = WAL');
+} else {
+  db.pragma('journal_mode = DELETE');
+}
 
 // Initialize schema
 function initSchema() {
@@ -66,5 +79,16 @@ function initSchema() {
 }
 
 initSchema();
+
+if (needsSeed) {
+  try {
+    const seedDatabase = require('./seed');
+    if (typeof seedDatabase === 'function') {
+      seedDatabase();
+    }
+  } catch (err) {
+    console.error('Auto-seed error on Vercel initialization:', err);
+  }
+}
 
 module.exports = db;
