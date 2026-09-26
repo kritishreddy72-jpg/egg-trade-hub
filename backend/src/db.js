@@ -1,24 +1,64 @@
-const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// On Vercel / AWS Lambda, the root filesystem is read-only.
-// We store the SQLite DB in /tmp to ensure full read/write capability.
 const isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 const dbDir = isVercel ? '/tmp' : path.resolve(__dirname, '..');
 const dbPath = path.join(dbDir, 'egg_trade.db');
 
-const needsSeed = isVercel && !fs.existsSync(dbPath);
+let db = null;
+let isNewDb = !fs.existsSync(dbPath);
 
-const db = new Database(dbPath);
+// 1. Try better-sqlite3 first (standard local development)
+try {
+  const Database = require('better-sqlite3');
+  db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+  if (!isVercel) {
+    db.pragma('journal_mode = WAL');
+  } else {
+    db.pragma('journal_mode = DELETE');
+  }
+} catch (err) {
+  console.warn('better-sqlite3 native bindings unavailable, falling back to node:sqlite:', err.message);
+}
 
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
+// 2. Fallback to node:sqlite (native built-in to modern Node.js 22+, zero compilation dependencies)
+if (!db) {
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    // On Vercel serverless, in-memory SQLite executes in 0.1ms with zero filesystem friction
+    db = new DatabaseSync(isVercel ? ':memory:' : dbPath);
+    isNewDb = true;
 
-if (!isVercel) {
-  db.pragma('journal_mode = WAL');
-} else {
-  db.pragma('journal_mode = DELETE');
+    // Polyfill db.transaction for better-sqlite3 API compatibility
+    if (typeof db.transaction !== 'function') {
+      db.transaction = function(fn) {
+        return function(...args) {
+          db.exec('BEGIN');
+          try {
+            const result = fn(...args);
+            db.exec('COMMIT');
+            return result;
+          } catch (e) {
+            db.exec('ROLLBACK');
+            throw e;
+          }
+        };
+      };
+    }
+
+    // Polyfill db.pragma
+    if (typeof db.pragma !== 'function') {
+      db.pragma = function(pragmaStr) {
+        try {
+          db.exec(`PRAGMA ${pragmaStr}`);
+        } catch (e) {}
+      };
+    }
+  } catch (err) {
+    console.error('Failed to initialize node:sqlite as well:', err);
+    throw new Error('No compatible SQLite database engine found (better-sqlite3 or node:sqlite).');
+  }
 }
 
 // Initialize schema
@@ -80,15 +120,17 @@ function initSchema() {
 
 initSchema();
 
-if (needsSeed) {
-  try {
+// Auto-seed if database has no users (e.g. fresh Vercel serverless cold start)
+try {
+  const userCountRow = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  const count = userCountRow ? (userCountRow.count !== undefined ? userCountRow.count : Object.values(userCountRow)[0]) : 0;
+  if (count === 0) {
+    console.log('Database empty on start — auto-seeding demo accounts...');
     const seedDatabase = require('./seed');
-    if (typeof seedDatabase === 'function') {
-      seedDatabase();
-    }
-  } catch (err) {
-    console.error('Auto-seed error on Vercel initialization:', err);
+    seedDatabase(db);
   }
+} catch (err) {
+  console.warn('Auto-seed check notice:', err.message);
 }
 
 module.exports = db;

@@ -1,5 +1,4 @@
 const bcrypt = require('bcryptjs');
-const db = require('./db');
 
 function getDateOffset(daysOffset) {
   const d = new Date();
@@ -7,7 +6,8 @@ function getDateOffset(daysOffset) {
   return d.toISOString().split('T')[0];
 }
 
-function seedDatabase() {
+function seedDatabase(customDb) {
+  const db = customDb || require('./db');
   console.log('Seeding Egg Trade database...');
 
   // Clear existing data to allow fresh seed
@@ -114,49 +114,37 @@ function seedDatabase() {
   `);
 
   // --- Customer 1 (Sri Krishna Bakery) ---
-  // Past Order 1: 3 days ago, 50 trays @ 198 = ₹9,900 (Credit, Delivered)
   const o1 = insertOrder.run(c1Id, dayMinus3, dayMinus3, 50, 198.00, 9900.00, 'credit', 'pending', 'delivered', 'Regular morning bulk delivery', 'user');
   insertLedger.run(c1Id, o1.lastInsertRowid, 9900.00, 'credit_added', `Credit for Order #${o1.lastInsertRowid} (50 trays)`, dayMinus3);
 
-  // Partial payment settlement yesterday: ₹5,000 paid via UPI/Cash
   insertLedger.run(c1Id, null, 5000.00, 'credit_settled', 'Bank Transfer / Cash payment received', dayMinus1);
 
-  // Past Order 2: Yesterday, 40 trays @ 205 = ₹8,200 (Credit, Delivered)
   const o2 = insertOrder.run(c1Id, dayMinus1, dayMinus1, 40, 205.00, 8200.00, 'credit', 'pending', 'delivered', 'Special cake batch egg requirement', 'user');
   insertLedger.run(c1Id, o2.lastInsertRowid, 8200.00, 'credit_added', `Credit for Order #${o2.lastInsertRowid} (40 trays)`, dayMinus1);
 
-  // Today Order: 45 trays @ 210 = ₹9,450 (Credit, Pending delivery)
   const o3 = insertOrder.run(c1Id, today, today, 45, 210.00, 9450.00, 'credit', 'pending', 'pending', 'Morning dispatch please deliver before 10 AM', 'user');
   insertLedger.run(c1Id, o3.lastInsertRowid, 9450.00, 'credit_added', `Credit for Order #${o3.lastInsertRowid} (45 trays)`, today);
 
   // --- Customer 2 (Anand Supermarket) ---
-  // Past Order 1: 4 days ago, 80 trays @ 195 = ₹15,600 (Cash on Delivery, Paid, Delivered)
   insertOrder.run(c2Id, dayMinus4, dayMinus4, 80, 195.00, 15600.00, 'cash', 'paid', 'delivered', 'Weekend stock replenishment', 'user');
 
-  // Past Order 2: 2 days ago, 60 trays @ 202 = ₹12,120 (Credit, Delivered)
   const o4 = insertOrder.run(c2Id, dayMinus2, dayMinus2, 60, 202.00, 12120.00, 'credit', 'pending', 'delivered', 'Mid-week stock', 'user');
   insertLedger.run(c2Id, o4.lastInsertRowid, 12120.00, 'credit_added', `Credit for Order #${o4.lastInsertRowid} (60 trays)`, dayMinus2);
 
-  // Today Order: 70 trays @ 210 = ₹14,700 (Credit, Confirmed)
   const o5 = insertOrder.run(c2Id, today, today, 70, 210.00, 14700.00, 'credit', 'pending', 'confirmed', 'Daily grocery retail trays', 'owner');
   insertLedger.run(c2Id, o5.lastInsertRowid, 14700.00, 'credit_added', `Credit for Order #${o5.lastInsertRowid} (70 trays)`, today);
 
   // --- Customer 3 (Hotel Annapurna) ---
-  // Past Order 1: 3 days ago, 30 trays @ 198 = ₹5,940 (Cash, Paid, Delivered)
   insertOrder.run(c3Id, dayMinus3, dayMinus3, 30, 198.00, 5940.00, 'cash', 'paid', 'delivered', 'Breakfast buffet usage', 'user');
 
-  // Past Order 2: Yesterday, 35 trays @ 205 = ₹7,175 (Credit, Delivered)
   const o6 = insertOrder.run(c3Id, dayMinus1, dayMinus1, 35, 205.00, 7175.00, 'credit', 'pending', 'delivered', 'Kitchen order', 'user');
   insertLedger.run(c3Id, o6.lastInsertRowid, 7175.00, 'credit_added', `Credit for Order #${o6.lastInsertRowid} (35 trays)`, dayMinus1);
 
-  // Today Order: 40 trays @ 210 = ₹8,400 (Cash on Delivery, Out for delivery)
   insertOrder.run(c3Id, today, today, 40, 210.00, 8400.00, 'cash', 'pending', 'out_for_delivery', 'Hand over to head chef', 'user');
 
   // --- Customer 4 (Ramesh Dhabha) ---
-  // Past Order: 2 days ago, 25 trays @ 202 = ₹5,050 (Cash, Paid, Delivered)
   insertOrder.run(c4Id, dayMinus2, dayMinus2, 25, 202.00, 5050.00, 'cash', 'paid', 'delivered', 'Curry eggs supply', 'user');
 
-  // Today Order: 30 trays @ 210 = ₹6,300 (Cash on Delivery, Delivered, Paid)
   insertOrder.run(c4Id, today, today, 30, 210.00, 6300.00, 'cash', 'paid', 'delivered', 'Early morning counter delivery - Cash Paid', 'owner');
 
   console.log('Seeding completed successfully!');
@@ -164,6 +152,8 @@ function seedDatabase() {
   console.log('Sample Customers: 9876543211, 9876543212, 9876543213, 9876543214 / user123');
 }
 
-seedDatabase();
+if (require.main === module) {
+  seedDatabase();
+}
 
 module.exports = seedDatabase;

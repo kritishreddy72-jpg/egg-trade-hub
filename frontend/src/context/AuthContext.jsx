@@ -2,6 +2,18 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
+async function parseResponse(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    if (!res.ok) {
+      throw new Error(`Server returned status ${res.status}: Backend service not responding.`);
+    }
+    throw new Error('Received non-JSON response from server.');
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('egg_trade_token') || null);
@@ -21,7 +33,7 @@ export function AuthProvider({ children }) {
           }
         });
         if (res.ok) {
-          const data = await res.json();
+          const data = await parseResponse(res);
           setUser(data.user);
         } else {
           // Token expired or invalid
@@ -45,7 +57,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ identifier, password, role })
     });
 
-    const data = await res.json();
+    const data = await parseResponse(res);
     if (!res.ok) {
       throw new Error(data.error || 'Login failed');
     }
@@ -63,7 +75,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify(userData)
     });
 
-    const data = await res.json();
+    const data = await parseResponse(res);
     if (!res.ok) {
       throw new Error(data.error || 'Registration failed');
     }
