@@ -2,11 +2,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api",
+      "source": "/api/(.*)",
       "destination": "/api/index.js"
     },
     {
-      "source": "/api/(.*)",
+      "source": "/api",
       "destination": "/api/index.js"
     },
     {

@@ -15,6 +15,14 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Normalize URL in case Vercel rewrites pass /api/index.js in req.url
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api/index.js')) {
+    req.url = req.url.replace('/api/index.js', '') || '/';
+  }
+  next();
+});
+
 // API Routes (Mounted on both /api/x and /x for full Vercel serverless / proxy compatibility)
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
@@ -36,7 +44,7 @@ app.get(['/api/health', '/health'], (req, res) => {
   res.json({ status: 'ok', service: 'Egg Trade API', timestamp: new Date().toISOString() });
 });
 
-app.get('/', (req, res) => {
+app.get(['/', '/api'], (req, res) => {
   res.json({ status: 'ok', service: 'Egg Trade API Serverless Root' });
 });
 
