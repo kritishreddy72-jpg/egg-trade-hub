@@ -10,7 +10,7 @@
     "seed": "npm run seed --prefix backend",
     "backend": "npm start --prefix backend",
     "frontend": "npm run dev --prefix frontend",
-    "build": "npm --prefix frontend install && npm --prefix frontend run build"
+    "build": "npm --prefix frontend run build"
   },
   "keywords": [
     "egg-trade",
