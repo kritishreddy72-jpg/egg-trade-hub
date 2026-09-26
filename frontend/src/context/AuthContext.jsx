@@ -7,6 +7,9 @@ async function parseResponse(res) {
   try {
     return JSON.parse(text);
   } catch (err) {
+    if (text.includes('Sign in to Vercel') || text.includes('SAML SSO') || text.includes('dpl_')) {
+      throw new Error('Vercel Deployment Protection is active. In your Vercel Dashboard, go to Settings > Deployment Protection and turn OFF "Vercel Authentication".');
+    }
     if (!res.ok) {
       throw new Error(`Server returned status ${res.status}: Backend service not responding.`);
     }
