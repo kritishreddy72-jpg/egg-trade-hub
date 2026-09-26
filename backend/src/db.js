@@ -8,10 +8,10 @@ const dbPath = path.join(dbDir, 'egg_trade.db');
 let db = null;
 let isNewDb = true;
 
-// 1. Try better-sqlite3 ONLY when not in serverless (local disk persistence)
 if (!isVercel) {
   try {
-    const Database = require('better-sqlite3');
+    const sqliteMod = 'better' + '-sqlite3';
+    const Database = require(sqliteMod);
     db = new Database(dbPath);
     db.pragma('foreign_keys = ON');
     db.pragma('journal_mode = WAL');

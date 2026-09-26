@@ -3,9 +3,6 @@
   "version": "1.0.0",
   "description": "Backend API for Egg Trading & Distribution System",
   "main": "src/server.js",
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "scripts": {
     "start": "node src/server.js",
     "seed": "node src/seed.js"
