@@ -1,9 +1,17 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
+
+// Enforce JWT_SECRET strictly from environment variables in production, with no hardcoded fallback
+if (isProduction && !process.env.JWT_SECRET) {
+  console.error('FATAL CONFIGURATION ERROR: JWT_SECRET environment variable is missing in production!');
+  throw new Error('JWT_SECRET environment variable is strictly required in production.');
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'egg-trade-secret-key-super-secure-2026';
 
-function verifyToken(req, res, next) {
+async function verifyToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader) {
     return res.status(401).json({ error: 'Access token required' });
@@ -17,7 +25,7 @@ function verifyToken(req, res, next) {
   const token = parts[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, name, phone, email, address, role FROM users WHERE id = ?').get(decoded.id);
+    const user = await db.prepare('SELECT id, name, phone, email, address, role FROM users WHERE id = ?').get(decoded.id);
     if (!user) {
       return res.status(401).json({ error: 'User associated with token no longer exists' });
     }

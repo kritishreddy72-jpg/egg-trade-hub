@@ -2,19 +2,49 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-async function parseResponse(res) {
+export async function parseResponse(res) {
   const text = await res.text();
+  let data;
+
   try {
-    return JSON.parse(text);
+    data = JSON.parse(text);
   } catch (err) {
-    if (text.includes('Sign in to Vercel') || text.includes('SAML SSO') || text.includes('dpl_')) {
-      throw new Error('Vercel Deployment Protection is active. In your Vercel Dashboard, go to Settings > Deployment Protection and turn OFF "Vercel Authentication".');
+    // Diagnose non-JSON responses (HTML error pages, Vercel SSO, server crash)
+    if (
+      text.includes('Sign in to Vercel') ||
+      text.includes('SAML SSO') ||
+      text.includes('dpl_') ||
+      text.includes('Vercel Authentication')
+    ) {
+      throw new Error(
+        'Vercel Deployment Protection is ACTIVE. To fix: Open Vercel Dashboard -> Settings -> Deployment Protection and disable "Vercel Authentication".'
+      );
     }
-    if (!res.ok) {
-      throw new Error(`Server returned status ${res.status}: Backend service not responding.`);
+
+    if (res.status === 404) {
+      throw new Error(
+        'Backend API route not found (404). Check vercel.json rewrites and ensure the backend service is deployed and active.'
+      );
     }
-    throw new Error('Received non-JSON response from server.');
+
+    if (res.status >= 500) {
+      throw new Error(
+        `Backend server error (${res.status}). Check Vercel Function logs and ensure required environment variables (TURSO_DATABASE_URL, JWT_SECRET) are configured.`
+      );
+    }
+
+    throw new Error(
+      `Received non-JSON response from server (Status ${res.status}): ${text.slice(0, 100).replace(/\s+/g, ' ')}...`
+    );
   }
+
+  // If the server returned an error status with JSON payload
+  if (!res.ok) {
+    const errorMsg = (data && (data.error || data.message)) || `Server responded with status ${res.status}`;
+    throw new Error(errorMsg);
+  }
+
+  return data;
 }
 
 export function AuthProvider({ children }) {
@@ -61,10 +91,6 @@ export function AuthProvider({ children }) {
     });
 
     const data = await parseResponse(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Login failed');
-    }
-
     localStorage.setItem('egg_trade_token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -79,10 +105,6 @@ export function AuthProvider({ children }) {
     });
 
     const data = await parseResponse(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Registration failed');
-    }
-
     localStorage.setItem('egg_trade_token', data.token);
     setToken(data.token);
     setUser(data.user);

@@ -9,158 +9,170 @@ function getTodayString() {
 }
 
 // GET /api/customers/my/balance (Customer views their own balance & breakdown)
-router.get('/my/balance', verifyToken, requireUser, (req, res) => {
-  const userId = req.user.id;
+router.get('/my/balance', verifyToken, requireUser, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
 
-  // Calculate net credit balance from credit_ledger
-  const balanceRow = db.prepare(`
-    SELECT COALESCE(SUM(CASE WHEN type = 'credit_added' THEN amount WHEN type = 'credit_settled' THEN -amount ELSE 0 END), 0) as balance
-    FROM credit_ledger WHERE user_id = ?
-  `).get(userId);
+    // Calculate net credit balance from credit_ledger
+    const balanceRow = await db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN type = 'credit_added' THEN amount WHEN type = 'credit_settled' THEN -amount ELSE 0 END), 0) as balance
+      FROM credit_ledger WHERE user_id = ?
+    `).get(userId);
 
-  const balance = balanceRow ? Math.max(0, balanceRow.balance) : 0;
+    const balance = balanceRow ? Math.max(0, balanceRow.balance) : 0;
 
-  // Contributing unpaid orders
-  const unpaidOrders = db.prepare(`
-    SELECT id, order_date, delivery_date, trays, price_per_tray, total_amount, payment_mode, payment_status, order_status
-    FROM orders
-    WHERE user_id = ? AND payment_mode = 'credit' AND payment_status = 'pending'
-    ORDER BY id ASC
-  `).all(userId);
+    // Contributing unpaid orders
+    const unpaidOrders = await db.prepare(`
+      SELECT id, order_date, delivery_date, trays, price_per_tray, total_amount, payment_mode, payment_status, order_status
+      FROM orders
+      WHERE user_id = ? AND payment_mode = 'credit' AND payment_status = 'pending'
+      ORDER BY id ASC
+    `).all(userId);
 
-  // Recent ledger entries
-  const recentLedger = db.prepare(`
-    SELECT id, amount, type, notes, date, created_at
-    FROM credit_ledger
-    WHERE user_id = ?
-    ORDER BY id DESC LIMIT 10
-  `).all(userId);
+    // Recent ledger entries
+    const recentLedger = await db.prepare(`
+      SELECT id, amount, type, notes, date, created_at
+      FROM credit_ledger
+      WHERE user_id = ?
+      ORDER BY id DESC LIMIT 10
+    `).all(userId);
 
-  return res.json({
-    outstandingBalance: balance,
-    unpaidOrdersCount: unpaidOrders.length,
-    unpaidOrders,
-    recentLedger
-  });
+    return res.json({
+      outstandingBalance: balance,
+      unpaidOrdersCount: unpaidOrders.length,
+      unpaidOrders,
+      recentLedger
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/customers (Owner views customer list with search & balances)
-router.get('/', verifyToken, requireOwner, (req, res) => {
-  const { search } = req.query;
+router.get('/', verifyToken, requireOwner, async (req, res, next) => {
+  try {
+    const { search } = req.query;
 
-  let query = `
-    SELECT 
-      u.id, u.name, u.phone, u.email, u.address, u.created_at,
-      COUNT(DISTINCT o.id) as total_orders,
-      COALESCE(SUM(CASE WHEN o.order_status != 'cancelled' THEN o.trays ELSE 0 END), 0) as total_trays,
-      COALESCE(SUM(CASE WHEN o.order_status != 'cancelled' THEN o.total_amount ELSE 0 END), 0) as total_spent,
-      COALESCE(
-        (SELECT SUM(CASE WHEN cl.type = 'credit_added' THEN cl.amount WHEN cl.type = 'credit_settled' THEN -cl.amount ELSE 0 END)
-         FROM credit_ledger cl WHERE cl.user_id = u.id),
-        0
-      ) as credit_balance,
-      (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND order_status IN ('pending', 'confirmed', 'out_for_delivery')) as active_orders_count
-    FROM users u
-    LEFT JOIN orders o ON u.id = o.user_id
-    WHERE u.role = 'user'
-  `;
+    let query = `
+      SELECT 
+        u.id, u.name, u.phone, u.email, u.address, u.created_at,
+        COUNT(DISTINCT o.id) as total_orders,
+        COALESCE(SUM(CASE WHEN o.order_status != 'cancelled' THEN o.trays ELSE 0 END), 0) as total_trays,
+        COALESCE(SUM(CASE WHEN o.order_status != 'cancelled' THEN o.total_amount ELSE 0 END), 0) as total_spent,
+        COALESCE(
+          (SELECT SUM(CASE WHEN cl.type = 'credit_added' THEN cl.amount WHEN cl.type = 'credit_settled' THEN -cl.amount ELSE 0 END)
+           FROM credit_ledger cl WHERE cl.user_id = u.id),
+          0
+        ) as credit_balance,
+        (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND order_status IN ('pending', 'confirmed', 'out_for_delivery')) as active_orders_count
+      FROM users u
+      LEFT JOIN orders o ON u.id = o.user_id
+      WHERE u.role = 'user'
+    `;
 
-  const params = [];
-  if (search && search.trim()) {
-    query += ` AND (u.name LIKE ? OR u.phone LIKE ? OR u.address LIKE ?)`;
-    const pattern = `%${search.trim()}%`;
-    params.push(pattern, pattern, pattern);
+    const params = [];
+    if (search && search.trim()) {
+      query += ` AND (u.name LIKE ? OR u.phone LIKE ? OR u.address LIKE ?)`;
+      const pattern = `%${search.trim()}%`;
+      params.push(pattern, pattern, pattern);
+    }
+
+    query += ` GROUP BY u.id ORDER BY credit_balance DESC, u.name ASC`;
+
+    const customers = await db.prepare(query).all(...params);
+
+    return res.json({ customers });
+  } catch (err) {
+    next(err);
   }
-
-  query += ` GROUP BY u.id ORDER BY credit_balance DESC, u.name ASC`;
-
-  const customers = db.prepare(query).all(...params);
-
-  return res.json({ customers });
 });
 
 // GET /api/customers/:id (Owner views specific customer's full record)
-router.get('/:id', verifyToken, requireOwner, (req, res) => {
-  const { id } = req.params;
+router.get('/:id', verifyToken, requireOwner, async (req, res, next) => {
+  try {
+    const { id } = req.params;
 
-  const user = db.prepare(`
-    SELECT id, name, phone, email, address, created_at
-    FROM users WHERE id = ? AND role = 'user'
-  `).get(id);
+    const user = await db.prepare(`
+      SELECT id, name, phone, email, address, created_at
+      FROM users WHERE id = ? AND role = 'user'
+    `).get(id);
 
-  if (!user) {
-    return res.status(404).json({ error: 'Customer not found' });
+    if (!user) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Calculate balance
+    const balanceRow = await db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN type = 'credit_added' THEN amount WHEN type = 'credit_settled' THEN -amount ELSE 0 END), 0) as balance
+      FROM credit_ledger WHERE user_id = ?
+    `).get(id);
+    const creditBalance = balanceRow ? balanceRow.balance : 0;
+
+    // Active/pending orders
+    const activeOrders = await db.prepare(`
+      SELECT * FROM orders
+      WHERE user_id = ? AND order_status IN ('pending', 'confirmed', 'out_for_delivery')
+      ORDER BY id DESC
+    `).all(id);
+
+    // Unpaid credit orders
+    const unpaidCreditOrders = await db.prepare(`
+      SELECT * FROM orders
+      WHERE user_id = ? AND payment_mode = 'credit' AND payment_status = 'pending'
+      ORDER BY id ASC
+    `).all(id);
+
+    // All past orders
+    const orderHistory = await db.prepare(`
+      SELECT * FROM orders
+      WHERE user_id = ?
+      ORDER BY id DESC
+    `).all(id);
+
+    // Credit ledger transactions
+    const ledgerHistory = await db.prepare(`
+      SELECT * FROM credit_ledger
+      WHERE user_id = ?
+      ORDER BY id DESC
+    `).all(id);
+
+    return res.json({
+      customer: user,
+      creditBalance,
+      activeOrders,
+      unpaidCreditOrders,
+      orderHistory,
+      ledgerHistory
+    });
+  } catch (err) {
+    next(err);
   }
-
-  // Calculate balance
-  const balanceRow = db.prepare(`
-    SELECT COALESCE(SUM(CASE WHEN type = 'credit_added' THEN amount WHEN type = 'credit_settled' THEN -amount ELSE 0 END), 0) as balance
-    FROM credit_ledger WHERE user_id = ?
-  `).get(id);
-  const creditBalance = balanceRow ? balanceRow.balance : 0;
-
-  // Active/pending orders
-  const activeOrders = db.prepare(`
-    SELECT * FROM orders
-    WHERE user_id = ? AND order_status IN ('pending', 'confirmed', 'out_for_delivery')
-    ORDER BY id DESC
-  `).all(id);
-
-  // Unpaid credit orders
-  const unpaidCreditOrders = db.prepare(`
-    SELECT * FROM orders
-    WHERE user_id = ? AND payment_mode = 'credit' AND payment_status = 'pending'
-    ORDER BY id ASC
-  `).all(id);
-
-  // All past orders
-  const orderHistory = db.prepare(`
-    SELECT * FROM orders
-    WHERE user_id = ?
-    ORDER BY id DESC
-  `).all(id);
-
-  // Credit ledger transactions
-  const ledgerHistory = db.prepare(`
-    SELECT * FROM credit_ledger
-    WHERE user_id = ?
-    ORDER BY id DESC
-  `).all(id);
-
-  return res.json({
-    customer: user,
-    creditBalance,
-    activeOrders,
-    unpaidCreditOrders,
-    orderHistory,
-    ledgerHistory
-  });
 });
 
 // POST /api/customers/:id/settle-credit (Owner records payment towards credit balance)
-router.post('/:id/settle-credit', verifyToken, requireOwner, (req, res) => {
-  const { id } = req.params;
-  const { amount, notes = '' } = req.body;
+router.post('/:id/settle-credit', verifyToken, requireOwner, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { amount, notes = '' } = req.body;
 
-  const numAmount = parseFloat(amount);
-  if (isNaN(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ error: 'Please enter a valid positive payment amount' });
-  }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Please enter a valid positive payment amount' });
+    }
 
-  const user = db.prepare('SELECT id, name FROM users WHERE id = ? AND role = \'user\'').get(id);
-  if (!user) {
-    return res.status(404).json({ error: 'Customer not found' });
-  }
+    const user = await db.prepare('SELECT id, name FROM users WHERE id = ? AND role = \'user\'').get(id);
+    if (!user) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
 
-  const today = getTodayString();
+    const today = getTodayString();
 
-  const settleTx = db.transaction(() => {
     // 1. Add credit_settled entry in ledger
     const ledgerStmt = db.prepare(`
       INSERT INTO credit_ledger (user_id, amount, type, notes, date)
       VALUES (?, ?, 'credit_settled', ?, ?)
     `);
-    ledgerStmt.run(
+    await ledgerStmt.run(
       id,
       numAmount,
       notes || `Payment received from ${user.name} towards credit balance`,
@@ -169,7 +181,7 @@ router.post('/:id/settle-credit', verifyToken, requireOwner, (req, res) => {
 
     // 2. Mark oldest pending credit orders as paid up to the settlement amount
     let remainingSettlement = numAmount;
-    const pendingOrders = db.prepare(`
+    const pendingOrders = await db.prepare(`
       SELECT id, total_amount FROM orders
       WHERE user_id = ? AND payment_mode = 'credit' AND payment_status = 'pending'
       ORDER BY id ASC
@@ -177,18 +189,14 @@ router.post('/:id/settle-credit', verifyToken, requireOwner, (req, res) => {
 
     for (const order of pendingOrders) {
       if (remainingSettlement >= order.total_amount) {
-        db.prepare('UPDATE orders SET payment_status = \'paid\' WHERE id = ?').run(order.id);
+        await db.prepare('UPDATE orders SET payment_status = \'paid\' WHERE id = ?').run(order.id);
         remainingSettlement -= order.total_amount;
       } else {
         break;
       }
     }
-  });
 
-  try {
-    settleTx();
-
-    const balanceRow = db.prepare(`
+    const balanceRow = await db.prepare(`
       SELECT COALESCE(SUM(CASE WHEN type = 'credit_added' THEN amount WHEN type = 'credit_settled' THEN -amount ELSE 0 END), 0) as balance
       FROM credit_ledger WHERE user_id = ?
     `).get(id);
@@ -198,8 +206,7 @@ router.post('/:id/settle-credit', verifyToken, requireOwner, (req, res) => {
       updatedBalance: balanceRow ? balanceRow.balance : 0
     });
   } catch (err) {
-    console.error('Error settling credit:', err);
-    return res.status(500).json({ error: 'Failed to record credit settlement' });
+    next(err);
   }
 });
 

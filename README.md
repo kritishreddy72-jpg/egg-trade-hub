@@ -24,6 +24,76 @@ A modern, full-stack web application designed specifically for egg traders, whol
 
 ---
 
+## ☁️ Vercel Deployment Guide
+
+This project is configured as a multi-service monorepo using the official Vercel `services` specification in `vercel.json`:
+- `frontend`: Vite React Single Page App (Root: `frontend`)
+- `backend`: Express Serverless API (Root: `backend`, Entrypoint: `index.js`)
+
+### 1. Framework & Root Directory Settings in Vercel
+When importing the repository into Vercel:
+- **Framework Preset:** Leave as **Other** (or **Vite**). Vercel reads `vercel.json` `services` automatically.
+- **Root Directory:** `./` (repository root, do **NOT** change to `/frontend` or `/backend`).
+
+### 2. Required Environment Variables
+In your Vercel Dashboard, go to **Project Settings > Environment Variables** and add:
+
+| Variable | Environment | Description | Example / Instructions |
+|---|---|---|---|
+| `TURSO_DATABASE_URL` | Production & Preview | Remote libSQL/SQLite database URL | `libsql://egg-trade-myorg.turso.io` |
+| `TURSO_AUTH_TOKEN` | Production & Preview | Auth token for your Turso database | `<turso_auth_token>` |
+| `JWT_SECRET` | Production & Preview | Strong secret for signing tokens | e.g. `egg-trade-super-secure-jwt-2026-production` |
+| `NODE_ENV` | Production & Preview | Runtime environment | `production` |
+
+> 🔒 **Security Notice:** In production, `JWT_SECRET` is strictly enforced from environment variables; the backend refuses to start if it is missing.
+
+### 3. Setting Up Turso (Free Hosted Persistent Database)
+To keep data persistent across Vercel serverless cold starts:
+1. Install Turso CLI or log in at [turso.tech](https://turso.tech).
+2. Create your database:
+   ```bash
+   turso db create egg-trade
+   ```
+3. Copy your database URL:
+   ```bash
+   turso db show egg-trade --url
+   # Output: libsql://egg-trade-myorg.turso.io
+   ```
+4. Create an authentication token:
+   ```bash
+   turso db tokens create egg-trade
+   ```
+5. Add `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` to your Vercel Project Environment Variables.
+
+> ✨ **Idempotent Auto-Seeding:** On first boot against Turso, the backend automatically creates all tables and seeds the demo accounts (`Rajesh Sharma (Owner)` + 4 customers, prices, orders, and ledger). Subsequent cold starts detect the existing users and skip re-seeding automatically.
+
+### 4. Critical: Vercel Deployment Protection Setting
+If you are deploying under a Vercel Team account, Vercel enables **Deployment Protection (Vercel Authentication)** by default. This intercepts unauthenticated API calls with an HTML login page, causing API requests to fail with non-JSON responses.
+
+**To resolve:**
+1. In Vercel, open your project dashboard.
+2. Go to **Settings > Deployment Protection**.
+3. Under **Vercel Authentication**, toggle it **OFF** (or set to "Only preview deployments" if you only want production public).
+4. Save changes.
+
+### 5. Verifying Your Deployment
+After deployment completes:
+1. **Check Backend API Health:**
+   Visit: `https://<your-project>.vercel.app/api/health`
+   Expected response:
+   ```json
+   {
+     "status": "ok",
+     "service": "Egg Trade API",
+     "timestamp": "2026-09-29T12:00:00.000Z"
+   }
+   ```
+2. **Check 1-Click Demo Login:**
+   Visit `https://<your-project>.vercel.app/` and click **"👑 Owner / Admin"** or **"🍞 Sri Krishna Bakery"**.
+   The app will log in instantly and open the corresponding dashboard with live seed data.
+
+---
+
 ## 🛠 Tech Stack
 
 - **Frontend:**
@@ -33,8 +103,8 @@ A modern, full-stack web application designed specifically for egg traders, whol
   - Responsive charts for daily egg tray sales and revenue trends
 - **Backend:**
   - **Node.js** with **Express**
-  - **better-sqlite3** (embedded SQLite database with WAL mode and foreign key enforcement)
-  - **JSON Web Tokens (JWT)** with role payload (`owner` / `user`)
+  - **@libsql/client** (Turso remote database client over HTTPS with local SQLite file fallback)
+  - **JSON Web Tokens (JWT)** with strict production secret enforcement
   - **bcryptjs** password hashing
 - **Database Schema:**
   - `users`: ID, name, phone, email, address, password hash, role (`owner` / `user`), timestamps
@@ -44,7 +114,7 @@ A modern, full-stack web application designed specifically for egg traders, whol
 
 ---
 
-## 📦 Setup & Installation
+## 📦 Setup & Local Installation
 
 ### Prerequisites
 - Node.js (v18+)
@@ -52,14 +122,15 @@ A modern, full-stack web application designed specifically for egg traders, whol
 
 ### 1. Clone or Open Project
 ```bash
-cd "C:\Users\K RITISH REDDY\.gemini\antigravity\scratch\egg-trade-app"
+git clone https://github.com/kritishreddy72-jpg/egg-trade-hub.git
+cd egg-trade-hub
 ```
 
 ### 2. Backend Setup
 ```bash
 cd backend
 npm install
-npm run seed     # Seeds owner, 4 customers, past orders, daily rates, and credit ledger
+npm run seed     # Seeds owner, 4 customers, past orders, daily rates, and credit ledger locally
 npm start        # Starts server on http://localhost:5000
 ```
 
@@ -171,7 +242,7 @@ npm run dev      # Starts Vite dev server on http://localhost:3000
 
 ## 🧪 Verification & Testing
 The application has been verified end-to-end:
-- Database schema and migrations pass integrity checks.
+- Database schema and migrations pass integrity checks with `@libsql/client` (Turso) and local SQLite fallback.
 - Password encryption and JWT tokens verified with role guard middleware.
 - Full E2E testing covers Owner login, setting prices, fast order entry (both cash and credit paths), customer registration, customer self-ordering, credit ledger tracking, and partial payment settlements.
 - React frontend builds cleanly with zero errors via Vite and Tailwind CSS.

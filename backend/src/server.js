@@ -15,14 +15,6 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Normalize URL in case Vercel rewrites pass /api/index.js in req.url
-app.use((req, res, next) => {
-  if (req.url.startsWith('/api/index.js')) {
-    req.url = req.url.replace('/api/index.js', '') || '/';
-  }
-  next();
-});
-
 // API Routes (Mounted on both /api/x and /x for full Vercel serverless / proxy compatibility)
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
@@ -48,10 +40,18 @@ app.get(['/', '/api'], (req, res) => {
   res.json({ status: 'ok', service: 'Egg Trade API Serverless Root' });
 });
 
-// Global Error Handler
+// 404 handler for backend routes (always returns JSON, not HTML)
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found', path: req.originalUrl || req.url });
+});
+
+// Global Error Handler (always returns JSON)
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
-  res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  res.status(err.status || 500).json({
+    error: 'Internal Server Error',
+    message: err.message || 'An unexpected server error occurred'
+  });
 });
 
 if (require.main === module && !process.env.VERCEL) {
